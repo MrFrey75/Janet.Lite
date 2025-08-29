@@ -1,6 +1,6 @@
 from datetime import datetime
 import sys
-import ollama
+# Removed 'import ollama' as it's now handled by the Orchestrator
 import yaml
 import os
 
@@ -11,8 +11,15 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSignal
 
+# Import the Orchestrator
+from src.janet_lite.services.orchestrator import Orchestrator
+
 
 class GPTClientUI(QMainWindow):
+    """
+    Main UI for the GPT client, now integrated with the Orchestrator.
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -22,6 +29,9 @@ class GPTClientUI(QMainWindow):
         # Track conversation state
         self.current_conversation = []
         self.conversation_file = None
+
+        # Instantiate the Orchestrator to handle message processing and logic
+        self.orchestrator = Orchestrator()
 
         # --- UI Elements ---
         central_widget = QWidget()
@@ -45,10 +55,11 @@ class GPTClientUI(QMainWindow):
         input_layout.addWidget(send_button)
         layout.addLayout(input_layout)
 
+        # Connect enter key to send message
+        self.input_field.returnPressed.connect(self.send_message)
+
     def start_new_conversation(self):
-        """
-        Saves the current conversation and initializes a new one.
-        """
+        """Saves the current conversation and initializes a new one."""
         if self.current_conversation:
             self.save_current_conversation()
         self.current_conversation = []
@@ -56,15 +67,14 @@ class GPTClientUI(QMainWindow):
         self.conversation_file = None
 
     def save_current_conversation(self):
-        """
-        Saves the current conversation to a YAML file, updating the last_updated timestamp.
-        """
+        """Saves the current conversation to a YAML file."""
         if not self.current_conversation:
             QMessageBox.information(self, "Save", "No conversation to save.")
             return
 
         if not self.conversation_file:
-            file_name, _ = QFileDialog.getSaveFileName(self, "Save Conversation", "conversation.yaml", "YAML Files (*.yaml)")
+            file_name, _ = QFileDialog.getSaveFileName(self, "Save Conversation", "conversation.yaml",
+                                                       "YAML Files (*.yaml)")
             if not file_name:
                 return
             self.conversation_file = file_name
@@ -79,9 +89,20 @@ class GPTClientUI(QMainWindow):
 
         QMessageBox.information(self, "Save", f"Conversation saved to {self.conversation_file}")
 
+    def perform_action(self, action_name: str):
+        """
+        Performs a specific action based on the name returned by the Orchestrator.
+        """
+        if action_name == "save_conversation":
+            self.save_current_conversation()
+            # Optionally, display a message confirming the action
+            self.chat_display.append("Janet: The conversation has been saved.")
+        else:
+            QMessageBox.warning(self, "Action Error", f"Unknown action: {action_name}")
+
     def send_message(self):
         """
-        Send user message to GPT via Ollama.
+        Sends a user message to the Orchestrator and handles the response.
         """
         user_message = self.input_field.text().strip()
         if not user_message:
@@ -89,17 +110,22 @@ class GPTClientUI(QMainWindow):
 
         # Display user message
         self.chat_display.append(f"You: {user_message}")
-        self.current_conversation.append({"role": "user", "content": user_message})
         self.input_field.clear()
 
         try:
-            response = ollama.chat(model="llama2", messages=self.current_conversation)
-            assistant_message = response['message']['content']
+            # Route the user message through the Orchestrator
+            response = self.orchestrator.process_input(user_message)
 
-            # Display GPT response
-            self.chat_display.append(f"Janet: {assistant_message}")
-            self.current_conversation.append({"role": "assistant", "content": assistant_message})
+            # Now, check the response type from the Orchestrator
+            if response['type'] == 'action':
+                # If it's an action, perform the action
+                self.perform_action(response['content'])
+            elif response['type'] == 'display':
+                # If it's for display, append the content to the chat history
+                self.chat_display.append(f"Janet: {response['content']}")
+            else:
+                # Handle unexpected response types
+                QMessageBox.critical(self, "Error", f"Unexpected response type from orchestrator: {response['type']}")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to send message: {str(e)}")
-
+            QMessageBox.critical(self, "Error", f"Failed to process message: {str(e)}")
