@@ -1,89 +1,172 @@
-import os
-from typing import Dict, List, Optional, Any
+from datetime import datetime
 import yaml
-from dataclasses import dataclass
-import requests
-import ollama  # Import ollama to use in the generate response method
+import os
+import ollama
+import json
+import time
+from typing import Dict, List, Optional, Any
 
+from google.auth.transport import requests
+
+from src.janet_lite.models.user_task import UserTask, Conversation, TaskAction
 
 class Orchestrator:
     """
     Manages conversation flow and routes user input to the appropriate
     action or model response.
     """
-
-    def __init__(self, config_path: str = "config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self):
+        # In a real application, you would load a config from a file.
+        # For this self-contained example, we'll use a placeholder config.
+        self.config = {'models': {'llama2': {}}}
         self.current_task = None
         self.conversation_history = []
-        self._initialize_models()
+        self.intents = self.load_intents('src/config/intent.yaml')
 
     @staticmethod
-    def _load_config(config_path: str) -> Dict[str, Any]:
-        """Loads configuration from a YAML file."""
-        if not os.path.exists(config_path):
-            return {}
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+    def load_intents(file_path: str) -> Optional[List[Dict]]:
+        """
+        Loads intent definitions from a YAML file.
+        """
+        if not os.path.exists(file_path):
+            print(f"Error: Intent configuration file not found at: {file_path}")
+            return None
+        try:
+            with open(file_path, 'r') as f:
+                data = yaml.safe_load(f)
+                return data.get('intents', [])
+        except Exception as e:
+            print(f"Error loading intent configuration: {e}")
+            return None
 
-    def _initialize_models(self) -> None:
-        """Initializes any required models or connections."""
-        self.models = {}
-        model_configs = self.config.get('models', {})
-        for model_name, settings in model_configs.items():
-            self.models[model_name] = self._setup_model(model_name, settings)
+    def get_intent(self, message: str) -> str:
+        """
+        Uses Ollama with llama2 to classify the intent of a message based on loaded data.
+        """
+        if not self.intents:
+            return "general_query"  # Fallback if config isn't loaded
 
-    def _setup_model(self, model_name: str, settings: Dict[str, Any]) -> Any:
-        # Placeholder for model initialization logic
-        pass
+        # Dynamically build the list of categories for the prompt
+        intent_names = [i['intent'] for i in self.intents]
+        categories_list = "\n".join([f"- {name}" for name in intent_names])
 
-    def process_input(self, user_input: str) -> Dict[str, Any]:
+        try:
+            prompt = f"""
+You are an intent classification assistant.
+Classify the following user message into one of these categories:
+{categories_list}
+
+Samples for each category include"
+{json.dumps(self.intents, indent=2)}
+
+Message: "{message}"
+
+Respond with one word,  only the category name.
+"""
+            result = ollama.chat(
+                model="llama2",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            # Directly use the model's single-line response
+            intent_response = result["message"]["content"].strip().lower()
+            print(f"Model raw output: {result['message']['content']}")
+
+            # Validate the response against the known intents
+            if intent_response in intent_names:
+                return intent_response
+            else:
+                print(f"Warning: Model returned an unknown intent: {intent_response}")
+                return "general_query"
+
+        except Exception as e:
+            # Fallback if Ollama call fails
+            print(f"Intent detection error: {e}")
+            return "general_query"
+
+    def do_google_search(self, query: str) -> str:
+        GOOGLE_SEARCH_API = "https://www.googleapis.com/customsearch/v1"
+        API_KEY = "AIzaSyAOIIoJUoEMvD7qOUEYKkewSRinxYYNhdo"  # Replace with actual API key
+        SEARCH_ENGINE_ID = "51feee7a93400443e"  # Replace with actual search engine ID
+
+        if not query:
+            return "No search query provided"
+
+        try:
+            params = {
+                'key': API_KEY,
+                'cx': SEARCH_ENGINE_ID,
+                'q': query
+            }
+            response = requests.get(GOOGLE_SEARCH_API, params=params)
+            response.raise_for_status()
+
+            results = response.json()
+            if 'items' not in results:
+                return "No results found"
+
+            summary = []
+            for item in results['items'][:3]:
+                summary.append(f"Title: {item['title']}\nLink: {item['link']}\nSnippet: {item['snippet']}\n")
+
+            return "\n".join(summary)
+
+        except requests.RequestException as e:
+            return f"Error performing search: {str(e)}"
+
+    def process_input(self, task: UserTask) -> UserTask:
         """
         Processes user input and returns a structured response for action or display.
-        The response is a dictionary with 'type' and 'content' keys.
         """
-        # First, add the user message to the conversation history
-        self.conversation_history.append({"role": "user", "content": user_input})
 
-        # Identify the task based on the user's input
-        task = self._identify_task(user_input)
+        if not task or not task.user_query:
+            raise ValueError("Invalid task or empty user query.")
 
-        if task.get('type') == 'action':
-            # If the task is an action, we return the action type and content directly.
-            # No LLM call is needed for a simple action.
-            response = {'type': 'action', 'content': task['action']}
-        else:
-            # If no action is identified, we generate a response using the LLM.
-            assistant_message = self._generate_response()
-            # Add the assistant's response to the conversation history
-            self.conversation_history.append({"role": "assistant", "content": assistant_message})
-            response = {'type': 'display', 'content': assistant_message}
+        if task.intent == "general_query":
+            return self.handle_general_query(task)
 
-        return response
+        if task.intent == "web_search":
+            # Placeholder for web search handling
+            task.response = self.do_google_search(task.user_query)
+            task.timestamp = datetime.utcnow().isoformat() + 'Z'
+            task.model = "web-search-model"
+            task.prompt = task.user_query
+            return task
 
-    @staticmethod
-    def _identify_task(user_input: str) -> Dict[str, Any]:
+
+        response = f"Echo: {task.user_query}"
+        task.response = response
+        task.timestamp = datetime.utcnow().isoformat() + 'Z'
+        task.model = "echo-model"
+        task.prompt = task.user_query
+        return task
+
+    def handle_general_query(self, task: UserTask) -> UserTask:
         """
-        Identifies a specific task or action from the user's input.
-        This is a simple placeholder. In a real app, this would be more complex.
-        """
-        if user_input.lower().strip() == "save conversation":
-            return {'type': 'action', 'action': 'save_conversation'}
-
-        return {'type': 'display'}  # Default to a display task
-
-    def _generate_response(self) -> str:
-        """
-        Generates a text response from the LLM based on conversation history.
+        Handles general queries by routing to the appropriate model.
         """
         try:
-            llm_response = ollama.chat(model="llama2", messages=self.conversation_history)
-            assistant_message = llm_response['message']['content']
-            return assistant_message
-        except Exception as e:
-            return f"An error occurred while generating a response: {str(e)}"
+            # For simplicity, we use a hardcoded model name. In a real app, this could be dynamic.
+            model_name = "llama2"
+            print(f"Routing to model: {model_name}")
 
-    def reset_conversation(self) -> None:
-        """Resets the conversation history and current task."""
-        self.current_task = None
-        self.conversation_history = []
+            # Call Ollama to get the response
+            result = ollama.chat(
+                model=model_name,
+                messages=[{"role": "user", "content": task.user_query}]
+            )
+
+            # Extract and set the response
+            task.response = result["message"]["content"]
+            task.model = model_name
+            task.prompt = task.user_query
+            task.timestamp = datetime.utcnow().isoformat() + 'Z'
+
+            return task
+
+        except Exception as e:
+            print(f"Error processing general query: {e}")
+            task.response = "Sorry, I encountered an error processing your request."
+            task.model = "error"
+            task.prompt = task.user_query
+            task.timestamp = datetime.utcnow().isoformat() + 'Z'
+            return task

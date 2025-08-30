@@ -1,0 +1,133 @@
+intents:
+  - intent: web_search
+    examples: |
+      - Search the web for {query}
+      - Look up {query} online
+      - Find information about {query}
+      - Can you search the internet for {query}?
+      - I want to know more about {query}
+      - Please find details on {query}
+      - Get me results for {query} from the web
+      - Look for articles on {query}
+      - Find websites related to {query}
+      - Search Google for {query}
+    slots:
+      query:
+        type: text
+        required: true
+        prompts:
+          - What would you like to search for?
+          - Please provide a search term.
+          - What is your query?
+          - What do you want to look up?
+          - Can you specify what you want to search?
+        actions:
+          - action: perform_web_search
+            parameters:
+              query: "{query}"
+            responses:
+              - Here are the search results for "{query}":
+              - I found the following information about "{query}":
+              - Here are some details on "{query}":
+              - These are the results I found for "{query}":
+              - Here is what I found regarding "{query}":
+              - I looked up "{query}" and found this information:
+  - intent: send_email
+    examples: |
+      - Send an email to {recipient} with subject {subject} and body {body}
+      - Email {recipient} about {subject} saying {body}
+      - Can you send an email to {recipient} with the subject {subject} and the message {body}?
+      - I need to email {recipient} regarding {subject}. The message is {body}.
+      - Please send an email to {recipient} with the subject {subject} and the content {body}.
+      - Draft an email to {recipient} with subject {subject} and body {body}
+    slots:
+      recipient:
+        type: text
+        required: true
+        prompts:
+          - Who is the recipient of the email?
+          - Please provide the email address or name of the recipient.
+          - To whom should I send the email?
+          - Can you specify the recipient's name or email?
+      subject:
+        type: text
+        required: true
+        prompts:
+          - What is the subject of the email?
+          - Please provide a subject line for the email.
+          - What should the email be about?
+          - Can you specify the topic of the email?
+      body:
+        type: text
+        required: true
+        prompts:
+          - What should be included in the body of the email?
+          - Please provide the main content of the email.
+          - What message do you want to send?
+          - Can you describe what you want to say in the email?
+    actions:
+      - action: send_email_action
+        parameters:
+          recipient: "{recipient}"
+          subject: "{subject}"
+          body: "{body}"
+        responses:
+          - The email has been sent to {recipient}.
+          - Your message to {recipient} has been delivered.
+          - I've sent your email regarding "{subject}" to {recipient}.
+          - The email to {recipient} with subject "{subject}" has been successfully sent.
+          - Your email has been sent!
+  - intent: code_generation
+    examples: |
+      - Write a {language} function to {task}
+      - Generate a script to {task} in {language}
+      - How do I {task} using {language}?
+      - Can you write some code for {task}?
+      - Create a {language} class to {task}
+      - Provide a {language} script for {task}
+      - Generate a {language} function for me
+    slots:
+      language:
+        type: text
+        required: false
+        prompts:
+          - What programming language should I use?
+          - Please specify the language.
+      task:
+        type: text
+        required: true
+        prompts:
+          - What task should the code perform?
+          - What do you need the code to do?
+          - Can you describe the functionality you need?
+    actions:
+      - action: generate_code
+        parameters:
+          language: "{language}"
+          task: "{task}"
+        responses:
+          - Here is the {language} code to {task}:
+          - I have generated the following script:
+          - Here is a code example for {task}:
+          - This code should help you with {task}:
+          - I've written the requested code for you:
+  - intent: general_query
+    examples: |
+      - What's the weather like?
+      - Tell me a joke.
+      - How are you doing?
+      - What is your purpose?
+      - Send an email to Lyz.
+      - This is a test.
+      - Tell me about yourself.
+      - What is your name?
+      - Can you help me?
+    actions:
+      - action: process_general_query
+        responses:
+          - I'm not sure how to respond to that yet.
+          - That's a great question!
+          - I'm here to help with general questions.
+          - I can answer that for you.
+          - Let's talk about something else.
+          - I can't do that yet.

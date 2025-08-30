@@ -1,14 +1,9 @@
 # src/janet_twin/__main__.py
+import sys
+from PyQt6.QtWidgets import QApplication
+from src.janet_lite.ui.main_window import GPTClientUI
 
 def main():
-    """
-    Main entry point for the application.
-    It initializes and runs the PyQt application.
-    """
-    import sys
-    from .app import GPTClientUI
-    from PyQt6.QtWidgets import QApplication
-
     app = QApplication(sys.argv)
     window = GPTClientUI()
     window.show()

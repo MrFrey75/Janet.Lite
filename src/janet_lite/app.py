@@ -1,13 +1,9 @@
 import sys
-import json
-import os
 from PyQt6.QtWidgets import QApplication
 from src.janet_lite.ui.main_window import GPTClientUI
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-
     window = GPTClientUI()
     window.show()
-
     sys.exit(app.exec())
